@@ -2,7 +2,7 @@ cc=gcc
 
 server=rtmpserver
 
-COMMONCFLAGS+=-Wall -g -pg -DDEBUG -DRSLOG
+COMMONCFLAGS+=-Wall -O2 -DDEBUG -DRSLOG
 CFLAGS+=$(COMMONCFLAGS) 
 LDLIBS+=
 
