@@ -1302,6 +1302,7 @@ static int recvchunkhead(rtransfer_t *rtt,rtmpchunkdata_t *rcd,rtmpchunk_t *rc)
 	int ret;
 	rtmpmsg_t *msg=&rtt->rp.rtm;
 	const rtmpmsg_t *prertm;
+	unsigned long ts;
 	transferbuf_t *rbuf=&rtt->recvbuf;
 	msg->chunkid=rc->chunkid;
 	p=rcd->payload+rcd->offset;
@@ -1332,14 +1333,15 @@ static int recvchunkhead(rtransfer_t *rtt,rtmpchunkdata_t *rcd,rtmpchunk_t *rc)
 			rcd->data=rcd->payload+rcd->offset_op;
 			if((ret=updateoffset(rtt->fd,rcd))!=FINISH)
 				return ret;
-			msg->ts=ntob24(p);p+=3;
+			ts=ntob24(p);p+=3;
 			msg->payload_len=ntob24(p);p+=3;
 			rbuf->offset_op=msg->payload_len;
 			msg->chunktotalsize=(msg->payload_len+msg->chunksize-1)/msg->chunksize;
 			msg->type=*p;p++;
-			if(msg->ts>=0xffffff)
-				msg->ts=ntob32(p);p+=4;
+			if(ts>=0xffffff)
+				ts=ntob32(p);p+=4;
 
+			msg->ts+=ts;
 			prertm=chunkset_get(&rtt->rp.cs,rc->chunkid);
 			if(!prertm){
 				rs_log(RS_DEBUG,"could not find in chunkset,what to do...\n");
@@ -1353,9 +1355,10 @@ static int recvchunkhead(rtransfer_t *rtt,rtmpchunkdata_t *rcd,rtmpchunk_t *rc)
 			rcd->data=rcd->payload+rcd->offset_op;
 			if((ret=updateoffset(rtt->fd,rcd))!=FINISH)
 				return ret;
-			msg->ts=ntob24(p);p+=3;
-			if(msg->ts>=0xffffff)
-				msg->ts=ntob32(p);p+=4;
+			ts=ntob24(p);p+=3;
+			if(ts>=0xffffff)
+				ts=ntob32(p);p+=4;
+			msg->ts+=ts;
 			prertm=chunkset_get(&rtt->rp.cs,rc->chunkid);
 			if(!prertm){
 				rs_log(RS_DEBUG,"could not find in chunkset,what to do...\n");
@@ -1422,6 +1425,7 @@ static char * readchunkid(char *p,rtmpchunk_t *rc)
 static void readchunkhead(char *p,rtmpchunk_t *rc,rtransfer_t *rtt)
 {
 	const rtmpmsg_t *prertm;
+	unsigned long ts;
 	rtmpmsg_t *msg=&rtt->rp.rtm;
 	transferbuf_t *rbuf=&rtt->recvbuf;
 	switch(rc->type){
@@ -1438,7 +1442,8 @@ static void readchunkhead(char *p,rtmpchunk_t *rc,rtransfer_t *rtt)
 			chunkset_put(&rtt->rp.cs,rc->chunkid,(const rtmpmsg_t*)msg);
 			break;
 		case TYPE1:
-			msg->ts=ntob24(p);p+=3;
+			ts=ntob24(p);p+=3;
+			msg->ts+=ts;
 			msg->payload_len=ntob24(p);p+=3;
 			rbuf->offset_op=msg->payload_len;
 			msg->chunktotalsize=(msg->payload_len+msg->chunksize-1)/msg->chunksize;
@@ -1452,7 +1457,8 @@ static void readchunkhead(char *p,rtmpchunk_t *rc,rtransfer_t *rtt)
 			chunkset_put(&rtt->rp.cs,rc->chunkid,(const rtmpmsg_t*)msg);
 			break;
 		case TYPE2:
-			msg->ts=ntob24(p);p+=3;
+			ts=ntob24(p);p+=3;
+			msg->ts+=ts;
 			prertm=chunkset_get(&rtt->rp.cs,rc->chunkid);
 			if(!prertm){
 				rs_log(RS_DEBUG,"could not find in chunkset,what to do...\n");
@@ -1822,8 +1828,10 @@ int rtransfer_recv(rtransfer_t *rtt)
 		case SCREATESTREAM:
 		case SPUBLISHED:
 		case SPLAYED:
-			if(rtt->flags&LIVEDATA_PUT)
+			if(rtt->flags&LIVEDATA_PUT){
+				usleep(2000);
 				return PROCESSING;
+			}
 			ret=rtmpchunkrecv(rtt);
 			if(ret!=FINISH)
 				return ret;
@@ -2215,8 +2223,6 @@ void transferbuf_writefromlive(transferbuf_t *tbuf,live_t *l,rtransfer_t *rtt)
 	if(rtransfer_snd(rtt)!=FINISH){
 		rtt->flags|=(TRAN_WRITE|TRAN_UPDATE);
 	}
-	transferbuf_init(&rtt->recvbuf,BUFSIZE);
-	chunkdata_init(&rtt->rp.rtm,&rtt->recvbuf);
 }
 
 bool transfer_removefromlive(rtransfer_t *rtt)
